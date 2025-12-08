@@ -1,0 +1,841 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>JVM Voxel Architecture Explainer (한국어)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url("https://fonts.googleapis.com/css2?family=VT323&display=swap");
+
+        /* Custom CSS for Voxel/Retro Look */
+        body {
+            font-family: "Inter", sans-serif;
+            background-color: #1a1a2e; /* Deep purple/blue background */
+            color: #e5e7eb;
+        }
+
+        .jvm-block {
+            border: 4px solid #4a4e69; /* Dark border for block aesthetic */
+            background-color: #2c314b; /* Slightly lighter background for blocks */
+            box-shadow: 6px 6px 0px 0px #1e2133; /* Strong 3D shadow effect */
+            transition: all 0.3s ease-in-out;
+            cursor: default;
+        }
+
+        /* Highlight for the primary active component */
+        .jvm-block.highlighted {
+            background-color: #ff9f1c; /* Orange highlight */
+            color: #1e2133;
+            border-color: #f26419;
+            box-shadow: 8px 8px 0px 0px #cc5a15;
+            transform: translate(-2px, -2px);
+            animation: pulse-border 1s infinite alternate;
+        }
+
+        /* Highlight for sub-components (Interpreter/JIT/GC) */
+        .jvm-block.sub-highlighted {
+            background-color: #8ac926; /* Green highlight for sub-components */
+            color: #1e2133;
+            border-color: #6a9c1e;
+            box-shadow: 8px 8px 0px 0px #507715;
+            transform: translate(-2px, -2px);
+        }
+
+        @keyframes pulse-border {
+            from {
+                border-color: #f26419;
+            }
+            to {
+                border-color: #ffc973;
+            }
+        }
+
+        /* Flow Animation Classes: Data Packet */
+        #data-packet {
+            position: absolute;
+            width: auto;
+            min-width: 40px;
+            padding: 4px 8px;
+            background-color: #06b6d4; /* Cyan/Blue for packet */
+            color: #1a1a2e;
+            font-size: 0.75rem;
+            font-weight: bold;
+            border-radius: 9999px; /* Pill shape */
+            border: 2px solid #38bdf8;
+            z-index: 100;
+            opacity: 0;
+            pointer-events: none;
+            text-align: center;
+            transform: translate(
+                    -50%,
+                    -50%
+            ); /* Center the packet on its coordinates */
+            transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1); /* Smooth movement */
+            white-space: nowrap;
+        }
+
+        #data-packet.visible {
+            opacity: 1;
+            /* Animation effect on arrival */
+            box-shadow: 0 0 15px rgba(6, 182, 212, 0.8);
+            transform: translate(-50%, -50%) scale(1.1);
+        }
+
+        /* The previous flow-source/destination classes are kept but not strictly necessary with the packet animation */
+        .flow-source,
+        .flow-destination {
+            animation: none !important;
+        }
+
+        .output-box {
+            font-family: "VT323", monospace;
+            background-color: #111827; /* Dark Terminal Background */
+            border: 2px solid #06b6d4; /* Cyan border */
+            box-shadow: 0 0 10px rgba(6, 182, 212, 0.5);
+        }
+
+        .code-input {
+            font-family: "VT323", monospace;
+            background-color: #0d121c;
+            color: #d1d5db;
+        }
+
+        /* Custom scrollbar for retro feel */
+        .output-box::-webkit-scrollbar {
+            width: 8px;
+        }
+        .output-box::-webkit-scrollbar-track {
+            background: #1f2937;
+        }
+        .output-box::-webkit-scrollbar-thumb {
+            background: #06b6d4;
+            border-radius: 4px;
+        }
+        .output-box::-webkit-scrollbar-thumb:hover {
+            background: #38bdf8;
+        }
+
+        /* Data Card Styles */
+        #data-card {
+            position: absolute;
+            z-index: 50;
+            padding: 12px;
+            border-radius: 8px;
+            background-color: #4a4e69;
+            border: 2px solid #ff9f1c;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            pointer-events: none; /* Allows mouse events to pass through to element below */
+            opacity: 0;
+            transform: translateY(10px);
+            transition: opacity 0.2s, transform 0.2s;
+            max-width: 300px;
+        }
+        #data-card.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<body>
+<div class="min-h-screen p-4 md:p-8">
+    <header class="text-center mb-10">
+        <h1
+                class="text-4xl md:text-5xl font-extrabold tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-emerald-400"
+        >
+            JVM: 2차원 복셀 실행 엔진
+        </h1>
+        <p class="text-gray-400 mt-2 text-lg">단계별 인터랙티브 구조 설명</p>
+    </header>
+
+    <!-- Main Grid Layout for JVM Architecture -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-7xl mx-auto">
+        <!-- Left Column: Code Input & Control -->
+        <div class="md:col-span-1 space-y-6">
+            <div class="jvm-block p-4 rounded-lg">
+                <h2 class="text-xl font-bold mb-3 text-cyan-300">
+                    1. 소스 입력 (바이트코드)
+                </h2>
+                <textarea
+                        id="code-input"
+                        class="jvm-block code-input w-full h-32 p-3 text-sm rounded-md resize-none focus:ring-2 focus:ring-cyan-500"
+                        readonly
+                >
+// 원본 Java 코드:
+// class MyClass {
+//     void myMethod(int x) {
+//         System.out.println(x);
+//     }
+// }
+//
+// main() {
+//     MyClass obj = new MyClass();
+//     obj.myMethod(42);
+// }
+
+// 바이트코드 스트림 (예시):
+LOAD class MyClass (클래스 로드)
+CALL init (생성자 호출)
+PUSH 42 (지역 변수 스택에 푸시)
+INVOKE_VIRTUAL myMethod(I)V (인스턴스 메소드 호출)
+RETURN (메소드 종료)
+                </textarea
+                >
+                <div class="flex flex-col space-y-2 mt-4">
+                    <button
+                            onclick="startSimulation()"
+                            id="start-btn"
+                            class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-150 transform hover:scale-[1.02] border-b-4 border-emerald-800 active:border-b-0"
+                    >
+                        시뮬레이션 시작 (단계별 흐름)
+                    </button>
+                    <button
+                            onclick="executeStep()"
+                            id="next-btn"
+                            class="bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-150 transform hover:scale-[1.02] border-b-4 border-cyan-800 active:border-b-0"
+                            disabled
+                    >
+                        다음 단계 (Next Step)
+                    </button>
+                    <button
+                            onclick="resetSimulation()"
+                            class="bg-gray-600 hover:bg-gray-500 text-white font-bold py-1 px-4 rounded-lg shadow-md transition duration-150 border-b-4 border-gray-800 active:border-b-0"
+                    >
+                        다이어그램 초기화
+                    </button>
+                </div>
+            </div>
+
+            <!-- Execution Log / Output -->
+            <div class="jvm-block p-4 rounded-lg h-96 overflow-y-auto output-box">
+                <h2 class="text-xl font-bold mb-2 text-cyan-300">
+                    실행 로그 (런타임 이벤트)
+                </h2>
+                <div id="log-output" class="text-xs space-y-1">
+                    <p class="text-green-400">
+                        >>> JVM 초기화 완료. 바이트코드 스트림을 기다립니다.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Columns: JVM Architecture Diagram -->
+        <div class="md:col-span-2 space-y-6">
+            <!-- Class Loader Subsystem (Input Gate) -->
+            <div id="class-loader" class="jvm-block p-4 rounded-lg">
+                <h2 class="text-xl font-bold text-yellow-300">
+                    2. 클래스 로더 서브시스템
+                </h2>
+                <div
+                        class="grid grid-cols-3 gap-2 mt-2 text-sm text-center font-semibold"
+                >
+                    <div id="loading" class="jvm-block p-2 rounded-md bg-gray-700">
+                        로딩 (Loading)
+                    </div>
+                    <div id="linking" class="jvm-block p-2 rounded-md bg-gray-700">
+                        링킹 (Linking: 검증/준비/해결)
+                    </div>
+                    <div
+                            id="initialization"
+                            class="jvm-block p-2 rounded-md bg-gray-700"
+                    >
+                        초기화 (Initialization)
+                    </div>
+                </div>
+            </div>
+
+            <!-- Runtime Data Areas (The Memory Blocks - Shared & Thread-Local) -->
+            <div id="runtime-data" class="jvm-block p-4 rounded-lg">
+                <h2 class="text-xl font-bold text-red-400 mb-3">
+                    3. 런타임 데이터 영역 (메모리)
+                </h2>
+                <div class="grid grid-cols-2 gap-4">
+                    <!-- Shared Areas -->
+                    <div
+                            id="method-area"
+                            class="jvm-block p-3 rounded-md bg-red-700/50 hover:bg-red-700/70"
+                            onmouseover="showDataCard('method-area', event)"
+                            onmouseout="hideDataCard()"
+                    >
+                        <h3 class="font-bold">메소드 영역 (공유)</h3>
+                        <p class="text-xs text-gray-300">
+                            클래스 메타데이터, 정적 변수, 상수 풀
+                        </p>
+                    </div>
+                    <div
+                            id="heap"
+                            class="jvm-block p-3 rounded-md bg-red-700/50 hover:bg-red-700/70"
+                            onmouseover="showDataCard('heap', event)"
+                            onmouseout="hideDataCard()"
+                    >
+                        <h3 class="font-bold">힙 영역 (공유)</h3>
+                        <p class="text-xs text-gray-300">모든 객체와 배열 (GC 관리)</p>
+                    </div>
+                    <!-- Thread-Local Areas -->
+                    <div
+                            id="jvm-stack"
+                            class="jvm-block p-3 rounded-md bg-green-700/50 hover:bg-green-700/70"
+                            onmouseover="showDataCard('jvm-stack', event)"
+                            onmouseout="hideDataCard()"
+                    >
+                        <h3 class="font-bold">JVM 스택 (스레드별)</h3>
+                        <p class="text-xs text-gray-300">
+                            프레임 저장 (지역 변수, 오퍼랜드 스택)
+                        </p>
+                    </div>
+                    <div class="col-span-1 space-y-2">
+                        <div class="flex space-x-2">
+                            <div
+                                    id="pc-register"
+                                    class="jvm-block p-2 rounded-md text-xs bg-green-700/50 w-1/2 hover:bg-green-700/70"
+                            >
+                                <h3>PC 레지스터</h3>
+                                <p class="text-xs text-gray-400">다음 명령어 주소</p>
+                            </div>
+                            <div
+                                    id="native-stack"
+                                    class="jvm-block p-2 rounded-md text-xs bg-green-700/50 w-1/2 hover:bg-green-700/70"
+                            >
+                                <h3>네이티브 스택</h3>
+                                <p class="text-xs text-gray-400">JNI/네이티브 메소드</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Execution Engine -->
+            <div id="execution-engine" class="jvm-block p-4 rounded-lg">
+                <h2 class="text-xl font-bold text-blue-300">4. 실행 엔진</h2>
+                <div
+                        class="grid grid-cols-3 gap-2 mt-2 text-sm text-center font-semibold"
+                >
+                    <div
+                            id="interpreter"
+                            class="jvm-block p-2 rounded-md bg-gray-700"
+                    >
+                        인터프리터
+                    </div>
+                    <div
+                            id="jit-compiler"
+                            class="jvm-block p-2 rounded-md bg-gray-700"
+                    >
+                        JIT 컴파일러 (HotSpots)
+                    </div>
+                    <div id="gc" class="jvm-block p-2 rounded-md bg-gray-700">
+                        가비지 컬렉터
+                    </div>
+                </div>
+            </div>
+
+            <!-- Native Interface/Libraries -->
+            <div
+                    id="native-interface"
+                    class="jvm-block p-4 rounded-lg bg-gray-800"
+            >
+                <h2 class="text-xl font-bold text-gray-300">
+                    5. 네이티브 메소드 인터페이스 (JNI) & 라이브러리
+                </h2>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Data Card Pop-up (Hidden by default) -->
+<div id="data-card" class="text-sm font-semibold">
+    <h3 id="card-title" class="text-lg font-bold mb-1 text-orange-300"></h3>
+    <div id="card-content" class="text-gray-200"></div>
+</div>
+
+<!-- Data Packet Element -->
+<div id="data-packet"></div>
+
+<script>
+    const steps = [
+        // 0. Start (Initial state setting)
+        {
+            elementId: "class-loader",
+            title: "1단계: 클래스 로딩",
+            detail:
+                "JVM은 바이트코드를 포함하는 `.class` 파일을 동적으로 로드하여 실행 프로세스를 시작합니다. (Write Once, Run Anywhere의 핵심)",
+            highlightType: "main",
+        },
+
+        // 1. Loading Flow (Input -> Class Loader)
+        {
+            elementId: "loading",
+            title: "1.1 로딩: .class 파일 전송",
+            detail:
+                "클래스 로더가 `.class` 파일의 바이너리 데이터를 찾아 읽습니다.",
+            highlightType: "sub",
+            flow: true,
+            sourceId: "code-input",
+            destinationId: "loading",
+            dataType: "`.class` 파일 (바이트코드)",
+        },
+        // 2. Loading to Memory Flow (Class Loader -> Heap/Method Area)
+        {
+            elementId: "method-area",
+            title: "1.1 로딩: 메모리 저장",
+            detail:
+                "클래스 로더가 'Class' 객체를 힙에, 메타데이터를 메소드 영역에 저장합니다.",
+            highlightType: "main",
+            flow: true,
+            sourceId: "loading",
+            destinationId: "method-area",
+            dataType: "클래스 메타데이터/Class 객체",
+        },
+
+        // 3. Linking (Verification is internal to the block, no external flow)
+        {
+            elementId: "linking",
+            title: "1.2 링킹 (검증)",
+            detail:
+                "바이트코드 검증기(Bytecode Verifier)가 구조적 정확성과 보안을 확인합니다. 검증 실패 시, 실행이 중단됩니다.",
+            highlightType: "sub",
+        },
+        {
+            elementId: "linking",
+            title: "1.2 링킹 (준비)",
+            detail:
+                "메소드 영역에 정적 변수 메모리를 할당하고 기본값으로 초기화합니다.",
+            highlightType: "sub",
+        },
+        {
+            elementId: "method-area",
+            title: "데이터 저장: 준비 완료",
+            detail: "준비 단계 완료: 정적 필드가 기본값으로 초기화됩니다.",
+            highlightType: "main",
+        },
+        {
+            elementId: "linking",
+            title: "1.2 링킹 (해결)",
+            detail:
+                "상수 풀에 있는 심볼릭 참조가 런타임에 직접적인 메모리 참조로 대체됩니다.",
+            highlightType: "sub",
+        },
+
+        // 4. Initialization
+        {
+            elementId: "initialization",
+            title: "1.3 초기화",
+            detail:
+                "정적 변수에 실제 초기값이 할당되고, 정적 초기화 블록이 실행됩니다.",
+            highlightType: "sub",
+        },
+        {
+            elementId: "initialization",
+            title: "클래스 로딩 완료",
+            detail:
+                "클래스 로더의 역할이 완료되고, JVM은 실행 단계로 이동합니다.",
+            highlightType: "main",
+        },
+
+        // 5. Execution Start (Bytecode to Execution Engine)
+        {
+            elementId: "execution-engine",
+            title: "2단계: 실행 엔진 구동",
+            detail:
+                "실행 엔진이 프로그램 진입점(예: `main` 메소드)에 대한 바이트코드 명령어를 메소드 영역에서 읽기 시작합니다.",
+            highlightType: "main",
+            flow: true,
+            sourceId: "method-area",
+            destinationId: "execution-engine",
+            dataType: "`main()` 메소드 바이트코드 인출",
+        },
+
+        // 6. Thread and Stack Creation
+        {
+            elementId: "jvm-stack",
+            title: "스레드 및 스택 생성",
+            detail:
+                "새로운 스레드가 시작되고, 해당 스레드만을 위한 전용 JVM 스택이 생성됩니다.",
+            highlightType: "main",
+        },
+        {
+            elementId: "pc-register",
+            title: "PC 레지스터 초기화",
+            detail:
+                "PC(Program Counter) 레지스터가 실행할 바이트코드 명령어의 주소를 가리킵니다.",
+            highlightType: "main",
+        },
+
+        // 7. Method Invocation (Execution Engine -> Stack Frame)
+        {
+            elementId: "jvm-stack",
+            title: "메소드 호출: 스택 프레임",
+            detail:
+                "`main()` 메소드 호출을 위해 스택에 새로운 스택 프레임이 푸시됩니다.",
+            highlightType: "main",
+            flow: true,
+            sourceId: "execution-engine",
+            destinationId: "jvm-stack",
+            dataType: "스택 프레임 생성/푸시",
+        },
+
+        // 8. Object Creation Flow (Execution Engine -> Heap)
+        {
+            elementId: "heap",
+            title: "객체 생성: 힙 할당",
+            detail:
+                "`new MyClass()`를 만나면, 힙 영역에 객체 인스턴스를 위한 메모리가 할당됩니다.",
+            highlightType: "main",
+            flow: true,
+            sourceId: "execution-engine",
+            destinationId: "heap",
+            dataType: "`MyClass` 인스턴스 할당",
+        },
+
+        // 9. Interpreter/JIT
+        {
+            elementId: "interpreter",
+            title: "실행 루프: 인터프리터 작동",
+            detail:
+                "인터프리터는 바이트코드 명령어를 한 줄씩 즉시 실행합니다. (PUSH 42, INVOKE_VIRTUAL 처리)",
+            highlightType: "sub",
+        },
+        {
+            elementId: "jit-compiler",
+            title: "실행 루프: JIT 컴파일러 작동",
+            detail:
+                "자주 호출되는('핫한') 코드를 식별하여 네이티브 코드로 컴파일합니다. (성능 최적화)",
+            highlightType: "sub",
+        },
+
+        // 10. Garbage Collection (Internal Heap monitoring, but affects Heap)
+        {
+            elementId: "gc",
+            title: "가비지 컬렉터 작동",
+            detail:
+                "GC는 힙 영역을 모니터링하여 더 이상 참조되지 않는 객체를 식별하고 메모리를 회수합니다.",
+            highlightType: "sub",
+        },
+
+        // 11. Native Call (Execution Engine -> Native)
+        {
+            elementId: "native-interface",
+            title: "네이티브 메소드 호출",
+            detail:
+                "네이티브 메소드 호출 시, 네이티브 스택과 인터페이스를 통해 OS 코드로 제어가 넘어갑니다.",
+            highlightType: "main",
+            flow: true,
+            sourceId: "execution-engine",
+            destinationId: "native-stack",
+            dataType: "네이티브 호출 명령",
+        },
+
+        // 12. Method Return (Stack -> Execution Engine/PC Register)
+        {
+            elementId: "jvm-stack",
+            title: "메소드 종료: 프레임 팝",
+            detail:
+                "메소드가 완료되면, 해당 스택 프레임은 JVM 스택에서 팝(pop)되고 제어권이 PC 레지스터로 돌아갑니다.",
+            highlightType: "main",
+            flow: true,
+            sourceId: "jvm-stack",
+            destinationId: "pc-register",
+            dataType: "스택 프레임 제거 및 반환 주소",
+        },
+
+        // 13. End
+        {
+            elementId: "execution-engine",
+            title: "실행 완료",
+            detail: "모든 사용자 스레드가 실행을 마쳤습니다. JVM이 종료됩니다.",
+            highlightType: "main",
+        },
+    ];
+
+    // --- 데이터 카드 콘텐츠 정의 (예시 코드 기반) ---
+    const dataCardContent = {
+        "method-area": {
+            title: "메소드 영역 데이터 (MyClass)",
+            content: `
+                <p><strong>클래스 정보:</strong> MyClass의 구조, 필드, 메소드 정보, 수퍼 클래스 등</p>
+                <p><strong>메소드 코드:</strong> <span class="text-green-400">myMethod(int x)</span>의 바이트코드와 <span class="text-green-400">main()</span> 메소드 바이트코드</p>
+                <p><strong>상수 풀:</strong> 클래스가 참조하는 상수, 타입 정보, 메소드 이름 (심볼릭/직접 참조)</p>
+                <p><strong>정적 변수:</strong> (예시 코드에는 없음)</p>
+            `,
+        },
+        heap: {
+            title: "힙 영역 데이터 (MyClass)",
+            content: `
+                <p><strong>객체 인스턴스:</strong> <span class="text-green-400">MyClass 인스턴스</span> (변수 'obj'가 참조)</p>
+                <p><strong>클래스 객체:</strong> <span class="text-green-400">Class&lt;MyClass&gt;</span> 객체 (클래스 로딩 시 생성)</p>
+                <p><strong>배열:</strong> (예시 코드에는 없음)</p>
+                <p class="text-xs text-yellow-300 mt-2">※ 힙 영역은 가비지 컬렉터(GC)에 의해 관리됩니다.</p>
+            `,
+        },
+        "jvm-stack": {
+            title: "JVM 스택 프레임 (main() 실행 중)",
+            content: `
+                <p><strong>현재 프레임:</strong> <span class="text-green-400">main()</span> 메소드 실행을 위한 스택 프레임</p>
+                <p><strong>지역 변수:</strong> <span class="text-green-400">obj</span> 변수 (힙 영역의 MyClass 인스턴스를 가리키는 참조)</p>
+                <p><strong>오퍼랜드 스택:</strong> 연산에 사용될 피연산자 임시 저장 공간</p>
+                <p><strong>프레임 데이터:</strong> 메소드 예외 처리 정보 등</p>
+                <p class="text-xs text-yellow-300 mt-2">※ 스택은 스레드마다 독립적이며, 메소드가 호출될 때마다 프레임이 푸시됩니다.</p>
+            `,
+        },
+    };
+    // ----------------------------------------------
+
+    let currentStep = 0;
+    let isRunning = false;
+
+    const elements = {
+        "class-loader": document.getElementById("class-loader"),
+        loading: document.getElementById("loading"),
+        linking: document.getElementById("linking"),
+        initialization: document.getElementById("initialization"),
+        "runtime-data": document.getElementById("runtime-data"),
+        "method-area": document.getElementById("method-area"),
+        heap: document.getElementById("heap"),
+        "jvm-stack": document.getElementById("jvm-stack"),
+        "pc-register": document.getElementById("pc-register"),
+        "native-stack": document.getElementById("native-stack"),
+        "execution-engine": document.getElementById("execution-engine"),
+        interpreter: document.getElementById("interpreter"),
+        "jit-compiler": document.getElementById("jit-compiler"),
+        gc: document.getElementById("gc"),
+        "native-interface": document.getElementById("native-interface"),
+        "log-output": document.getElementById("log-output"),
+        "start-btn": document.getElementById("start-btn"),
+        "next-btn": document.getElementById("next-btn"),
+        "data-card": document.getElementById("data-card"),
+        "card-title": document.getElementById("card-title"),
+        "card-content": document.getElementById("card-content"),
+        "code-input": document.getElementById("code-input"), // Added for flow highlighting
+        "data-packet": document.getElementById("data-packet"), // Added data packet
+    };
+
+    function getElementByIdOrGlobal(id) {
+        return elements[id] || document.getElementById(id);
+    }
+
+    // Helper function to get the text content for the log, handling elements without h2/h3
+    function getElementTitle(el) {
+        if (!el) return "UNKNOWN SOURCE/DEST";
+
+        // 1. Check for dedicated title elements (h2, h3)
+        const titleEl = el.querySelector("h2, h3");
+        if (titleEl) {
+            return titleEl.textContent;
+        }
+
+        // 2. Fallback for elements without titles (like code-input or sub-boxes with simple text content)
+        // Trim and shorten the text content if it's too long (e.g., from textarea)
+        let text = el.textContent.trim().split("\n")[0];
+        if (text.length > 30) {
+            text = text.substring(0, 30) + "...";
+        }
+
+        // 3. Last resort, use the ID
+        return text || el.id;
+    }
+
+    function log(title, detail, type) {
+        const titleClass =
+            type === "flow"
+                ? "text-cyan-400"
+                : type === "main"
+                    ? "text-yellow-400"
+                    : "text-blue-400";
+        const detailClass = "text-gray-300";
+        const newLog = document.createElement("div");
+        newLog.innerHTML = `<span class="${titleClass}">[${title}]</span>: <span class="${detailClass}">${detail}</span>`;
+        elements["log-output"].appendChild(newLog);
+        elements["log-output"].scrollTop = elements["log-output"].scrollHeight; // Auto-scroll
+    }
+
+    function clearHighlight() {
+        document.querySelectorAll(".jvm-block, .code-input").forEach((el) => {
+            el.classList.remove(
+                "highlighted",
+                "sub-highlighted",
+                "flow-source",
+                "flow-destination"
+            );
+            // Remove animation property to allow re-triggering
+            el.style.animation = "none";
+            el.offsetHeight; /* trigger reflow */
+            el.style.animation = null;
+        });
+        // Clear data packet
+        elements["data-packet"].classList.remove("visible");
+    }
+
+    function applyHighlight(elementId, highlightType) {
+        const el = getElementByIdOrGlobal(elementId);
+        if (el) {
+            el.classList.add(
+                highlightType === "main" ? "highlighted" : "sub-highlighted"
+            );
+        }
+    }
+
+    // Function to get the center coordinates of an element
+    function getElementCenter(el) {
+        const rect = el.getBoundingClientRect();
+        return {
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+        };
+    }
+
+    function flowData(sourceId, destinationId, dataType) {
+        const sourceEl = getElementByIdOrGlobal(sourceId);
+        const destEl = getElementByIdOrGlobal(destinationId);
+        const packet = elements["data-packet"];
+
+        // Use the safe title getter
+        const sourceTitle = getElementTitle(sourceEl);
+        const destTitle = getElementTitle(destEl);
+
+        log(
+            "데이터 흐름",
+            `${sourceTitle} → ${destTitle}: ${dataType}`,
+            "flow"
+        );
+
+        // 1. Data Packet Animation Setup
+        if (!sourceEl || !destEl) return;
+
+        const sourceCenter = getElementCenter(sourceEl);
+        const destCenter = getElementCenter(destEl);
+
+        // Reset transition and set initial position (Source)
+        packet.style.transition = "none";
+        packet.style.left = `${sourceCenter.x}px`;
+        packet.style.top = `${sourceCenter.y}px`;
+        packet.textContent = dataType;
+        packet.classList.remove("visible");
+
+        // Use a slight timeout to force reflow and apply the initial position before the transition starts
+        setTimeout(() => {
+            // Apply the transition settings
+            packet.style.transition = "all 0.6s cubic-bezier(0.4, 0, 0.2, 1)";
+
+            // Set target position (Destination)
+            packet.style.left = `${destCenter.x}px`;
+            packet.style.top = `${destCenter.y}px`;
+
+            // Start the transition visually
+            packet.classList.add("visible");
+
+            // Hide the packet after the transition duration
+            setTimeout(() => {
+                packet.classList.remove("visible");
+            }, 600); // Matches CSS transition duration
+        }, 10);
+    }
+
+    // --- 마우스 오버/아웃 함수 ---
+    window.showDataCard = function (elementId, event) {
+        if (!dataCardContent[elementId]) return;
+
+        const content = dataCardContent[elementId];
+
+        elements["card-title"].innerHTML = content.title;
+        elements["card-content"].innerHTML = content.content;
+
+        const card = elements["data-card"];
+        card.classList.add("visible");
+
+        // 카드 위치 조정 (마우스 포인터 오른쪽 아래)
+        const x = event.pageX + 15;
+        const y = event.pageY + 15;
+        card.style.left = `${x}px`;
+        card.style.top = `${y}px`;
+
+        // 화면 경계를 벗어나지 않도록 조정
+        const cardRect = card.getBoundingClientRect();
+        if (x + cardRect.width > window.innerWidth) {
+            card.style.left = `${event.pageX - cardRect.width - 15}px`;
+        }
+        if (y + cardRect.height > window.innerHeight) {
+            card.style.top = `${event.pageY - cardRect.height - 15}px`;
+        }
+    };
+
+    window.hideDataCard = function () {
+        elements["data-card"].classList.remove("visible");
+    };
+    // ---------------------------------
+
+    window.executeStep = function () {
+        if (!isRunning) return;
+
+        if (currentStep < steps.length) {
+            const step = steps[currentStep];
+
+            clearHighlight();
+
+            // 1. Data Flow Visualization (if defined for the step)
+            if (step.flow && step.sourceId && step.destinationId) {
+                flowData(step.sourceId, step.destinationId, step.dataType);
+            }
+
+            // 2. Primary Action Highlight & Logging
+            // Introduce a short delay before applying the main highlight to ensure flow animation starts
+            setTimeout(
+                () => {
+                    applyHighlight(step.elementId, step.highlightType);
+                    log(step.title, step.detail, step.highlightType);
+                },
+                step.flow ? 100 : 0
+            );
+
+            currentStep++;
+        } else {
+            isRunning = false;
+            elements["start-btn"].textContent = "시뮬레이션 완료! 재실행?";
+            elements["start-btn"].disabled = false;
+            elements["next-btn"].disabled = true;
+            clearHighlight();
+            log("시뮬레이션 종료", "JVM 종료 시퀀스가 시작되었습니다.", "main");
+        }
+    };
+
+    window.startSimulation = function () {
+        if (isRunning) return;
+
+        resetSimulation(); // Ensure a clean start
+        isRunning = true;
+        elements["start-btn"].textContent = "시뮬레이션 중...";
+        elements["start-btn"].disabled = true;
+        elements["next-btn"].disabled = false;
+
+        log(
+            "시스템 부팅",
+            "Java Virtual Machine (JVM)을 시작합니다. '다음 단계' 버튼을 눌러주세요.",
+            "main"
+        );
+
+        currentStep = 0;
+    };
+
+    window.resetSimulation = function () {
+        isRunning = false;
+        currentStep = 0;
+
+        // Clear all highlights and flow classes
+        clearHighlight();
+
+        // Reset Log
+        elements["log-output"].innerHTML =
+            '<p class="text-green-400">>>> JVM 초기화 완료. 바이트코드 스트림을 기다립니다.</p>';
+
+        // Reset Buttons
+        elements["start-btn"].textContent = "시뮬레이션 시작 (단계별 흐름)";
+        elements["start-btn"].disabled = false;
+        elements["next-btn"].disabled = true;
+
+        // Hide Card
+        hideDataCard();
+    };
+
+    window.onload = resetSimulation; // Initialize on load
+</script>
+</body>
+</html>

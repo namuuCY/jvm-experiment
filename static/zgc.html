@@ -1,0 +1,1106 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ZGC 2D Visualizer</title>
+    <style>
+        @import url("https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&family=Press+Start+2P&display=swap");
+
+        :root {
+            --bg-color: #1a1a2e;
+            --text-color: #e0e0e0;
+            --accent-color: #0f3460;
+            --highlight-color: #e94560;
+            --region-border: #16213e;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: "Noto Sans KR", sans-serif;
+        }
+
+        #canvas-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            background: radial-gradient(circle at center, #2a2a4e 0%, #1a1a2e 100%);
+        }
+
+        canvas {
+            display: block;
+        }
+
+        /* UI Overlay */
+        #ui-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        .ui-panel {
+            position: absolute;
+            pointer-events: auto;
+        }
+
+        h1 {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            font-family: "Press Start 2P", cursive;
+            font-size: 24px;
+            color: #fff;
+            text-shadow: 4px 4px 0px #000;
+            margin: 0;
+        }
+
+        #phase-indicator {
+            top: 70px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 8px;
+            border: 2px solid var(--highlight-color);
+            max-width: 400px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+        }
+
+        #phase-title {
+            font-weight: bold;
+            font-size: 1.2em;
+            color: var(--highlight-color);
+            margin-bottom: 5px;
+        }
+
+        #phase-desc {
+            font-size: 0.9em;
+            line-height: 1.5;
+        }
+
+        /* Legend Table */
+        #legend {
+            top: 20px;
+            right: 20px;
+            background: rgba(15, 33, 60, 0.9);
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #4db5ff;
+            font-size: 0.8em;
+            max-width: 250px;
+        }
+
+        #legend h4 {
+            margin: 0 0 10px 0;
+            color: #4db5ff;
+            font-family: "Press Start 2P";
+            font-size: 10px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        .legend-color {
+            width: 12px;
+            height: 12px;
+            margin-right: 8px;
+            border: 1px solid #fff;
+        }
+        .legend-desc {
+            font-size: 11px;
+            color: #ccc;
+        }
+
+        /* Controls */
+        #controls {
+            position: absolute;
+            bottom: 30px;
+            right: 30px;
+            pointer-events: auto;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        button {
+            background: var(--highlight-color);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-family: "Press Start 2P", cursive;
+            font-size: 12px;
+            cursor: pointer;
+            box-shadow: 4px 4px 0px #000;
+            transition: transform 0.1s;
+        }
+
+        button:active {
+            transform: translate(2px, 2px);
+            box-shadow: 2px 2px 0px #000;
+        }
+
+        button:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+
+        /* Hover Card */
+        #tooltip {
+            position: absolute;
+            display: none;
+            background: rgba(15, 33, 60, 0.95);
+            border: 1px solid #4db5ff;
+            padding: 15px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            pointer-events: none;
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(4px);
+            z-index: 100;
+            min-width: 200px;
+        }
+
+        #tooltip h3 {
+            margin: 0 0 10px 0;
+            color: #4db5ff;
+            font-family: "Press Start 2P", cursive;
+            font-size: 10px;
+            border-bottom: 1px solid #4db5ff;
+            padding-bottom: 5px;
+        }
+
+        .data-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+        }
+
+        .label {
+            color: #888;
+        }
+        .value {
+            font-weight: bold;
+            color: #fff;
+        }
+
+        /* Loader/Timer */
+        #timer-bar-container {
+            width: 100%;
+            height: 4px;
+            background: #333;
+            margin-top: 10px;
+            display: none;
+        }
+        #timer-bar {
+            width: 0%;
+            height: 100%;
+            background: #00ff00;
+            transition: width 0.1s linear;
+        }
+
+        #scan-line {
+            position: absolute;
+            width: 2px;
+            height: 100%;
+            background: rgba(255, 215, 0, 0.5);
+            box-shadow: 0 0 15px 5px rgba(255, 215, 0, 0.3);
+            top: 0;
+            left: 0;
+            display: none;
+            pointer-events: none;
+            z-index: 50;
+        }
+    </style>
+</head>
+<body>
+<div id="canvas-container">
+    <canvas id="voxelCanvas"></canvas>
+    <div id="scan-line"></div>
+
+    <div id="ui-layer">
+        <h1>ZGC 2D Demo</h1>
+
+        <div id="legend" class="ui-panel">
+            <h4>LEGEND</h4>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #4cd137"></div>
+                <span class="legend-desc">Live Object (일반 객체)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #fbc531"></div>
+                <span class="legend-desc">Root Object (GC 루트)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #9c88ff"></div>
+                <span class="legend-desc">Marked (생존 확인됨)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #e84118"></div>
+                <span class="legend-desc">Garbage (수거 대상)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #00a8ff"></div>
+                <span class="legend-desc">Relocated (이동됨)</span>
+            </div>
+            <div style="margin: 10px 0; border-top: 1px solid #555"></div>
+            <h4>Z-PAGES (Regions)</h4>
+            <div class="legend-item">
+                <span class="legend-desc">🟦 Small: 2MB (작은 객체)</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-desc">🟪 Medium: 32MB (중간 객체)</span>
+            </div>
+            <div class="legend-item">
+                <span class="legend-desc">🟧 Large: N x 2MB (단일 객체)</span>
+            </div>
+        </div>
+
+        <div id="phase-indicator" class="ui-panel">
+            <div id="phase-title">Phase 0: 초기화</div>
+            <div id="phase-desc">
+                ZGC 메모리 구조(Z-Pages)를 초기화하고 객체를 할당합니다.<br />
+                <b>Large Page</b>는 단일 객체만 저장하므로, Compaction 대상은 보통
+                <b>Medium/Small</b> 페이지로 이동합니다.
+            </div>
+            <div id="timer-bar-container"><div id="timer-bar"></div></div>
+        </div>
+    </div>
+
+    <div id="tooltip">
+        <h3>Memory Object</h3>
+        <div class="data-row">
+            <span class="label">Address:</span>
+            <span class="value" id="tt-addr">0x0000</span>
+        </div>
+        <div class="data-row">
+            <span class="label">Size:</span>
+            <span class="value" id="tt-size">24 bytes</span>
+        </div>
+        <div class="data-row">
+            <span class="label">Region:</span>
+            <span class="value" id="tt-region">ZPage-1</span>
+        </div>
+        <div class="data-row">
+            <span class="label">Type:</span>
+            <span class="value" id="tt-type">Small</span>
+        </div>
+        <div class="data-row">
+            <span class="label">State:</span>
+            <span class="value" id="tt-state">Allocated</span>
+        </div>
+        <div class="data-row">
+            <span class="label">Refs:</span>
+            <span class="value" id="tt-refs">None</span>
+        </div>
+    </div>
+
+    <div id="controls">
+        <button id="next-btn">다음 단계 (Next)</button>
+    </div>
+</div>
+
+<script>
+    /**
+     * ZGC 2D Visualization Engine
+     */
+
+    const canvas = document.getElementById("voxelCanvas");
+    const ctx = canvas.getContext("2d");
+    const nextBtn = document.getElementById("next-btn");
+    const phaseTitle = document.getElementById("phase-title");
+    const phaseDesc = document.getElementById("phase-desc");
+    const tooltip = document.getElementById("tooltip");
+    const timerBarContainer = document.getElementById("timer-bar-container");
+    const timerBar = document.getElementById("timer-bar");
+    const scanLine = document.getElementById("scan-line");
+
+    // Configuration
+    const TILE_SIZE = 40;
+    const GAP = 4;
+    const BLINK_DURATION = 5000;
+    const FRAGMENTATION_THRESHOLD = 0.5; // 50% garbage = reclaim
+
+    // Region Definitions
+    const REGION_TYPES = {
+        SMALL: { type: "Small", w: 4, h: 4, color: "#252540", cap: "2MB" },
+        MEDIUM: { type: "Medium", w: 6, h: 6, color: "#302545", cap: "32MB" },
+        LARGE: { type: "Large", w: 8, h: 8, color: "#402a25", cap: "N*2MB" },
+    };
+
+    // Colors
+    const COLORS = {
+        bg: "#1a1a2e",
+        regionHighlight: "#353560",
+        objLive: "#4cd137",
+        objGarbage: "#e84118",
+        objRelocated: "#00a8ff",
+        objRoot: "#fbc531", // Gold
+        objMarked: "#9c88ff", // Purple
+        shadow: "rgba(0,0,0,0.5)",
+        cursor: "rgba(255, 255, 255, 0.2)",
+    };
+
+    // State
+    let width, height;
+    let offsetX = 0,
+        offsetY = 0;
+    let mouse = { x: 0, y: 0 };
+    let currentPhase = 0;
+    let isAnimating = false;
+    let hoverObject = null;
+    let activeScanLine = false;
+
+    // Data Structures
+    class Region {
+        constructor(id, typeKey, gx, gy) {
+            this.id = id;
+            const typeInfo = REGION_TYPES[typeKey];
+            this.type = typeInfo.type;
+            this.w = typeInfo.w;
+            this.h = typeInfo.h;
+            this.baseColor = typeInfo.color;
+
+            // Grid Position
+            this.gx = gx;
+            this.gy = gy;
+
+            this.objects = [];
+            this.isRelocationTarget = false;
+        }
+
+        getGarbageRatio() {
+            if (this.objects.length === 0) return 0;
+            const garbageCount = this.objects.filter((o) => o.isGarbage).length;
+            return garbageCount / this.objects.length;
+        }
+    }
+
+    class MemObject {
+        constructor(id, region, rx, ry) {
+            this.id = id;
+            this.address = `0x${(0x1000 + id * 8).toString(16).toUpperCase()}`;
+            this.region = region;
+            this.rx = rx; // Local x in region
+            this.ry = ry; // Local y in region
+
+            this.isRoot = false;
+            this.isLive = true;
+            this.isMarked = false;
+            this.isGarbage = false;
+            this.color = COLORS.objLive;
+
+            this.references = [];
+
+            this.blinking = false;
+            this.visible = true;
+
+            // Animation
+            this.z = 0;
+            this.blinkStart = 0;
+            this.blinkDuration = 0;
+            this.customBlink = false; // For Phase 2 root blink
+        }
+
+        getScreenPos() {
+            const globalX = this.region.gx + this.rx;
+            const globalY = this.region.gy + this.ry;
+            return {
+                x: offsetX + globalX * TILE_SIZE,
+                y: offsetY + globalY * TILE_SIZE,
+                gx: globalX,
+                gy: globalY,
+            };
+        }
+    }
+
+    const regions = [];
+    const objects = [];
+    let nextObjectId = 1;
+
+    // --- Initialization ---
+
+    function init() {
+        resize();
+        window.addEventListener("resize", resize);
+        window.addEventListener("mousemove", onMouseMove);
+        nextBtn.addEventListener("click", nextPhase);
+
+        // Create Mixed Regions
+        // CORRECTION: Target region (ZPage-4) should be MEDIUM or SMALL to accept multiple objects.
+        // Large pages are for single large objects only.
+        createRegion("ZPage-1", "SMALL", 0, 0);
+        createRegion("ZPage-2", "MEDIUM", 6, 0);
+        createRegion("ZPage-3", "SMALL", 0, 8);
+        createRegion("ZPage-4", "MEDIUM", 6, 8); // Changed to MEDIUM for correct Compaction simulation
+
+        allocateObjects();
+        requestAnimationFrame(loop);
+    }
+
+    function createRegion(id, type, x, y) {
+        regions.push(new Region(id, type, x, y));
+    }
+
+    function allocateObjects() {
+        // 1. ZPage-1 (Root area): Clean, mostly live
+        // CORRECTION: Fill with more objects to show it's "Healthy" (Low Garbage)
+        fillRegionWithObjects(regions[0], 14, 0.1); // 14 objects, 10% garbage -> Mostly Live
+
+        // Manually ensure we have a clear Root in Region 0
+        const r1 = regions[0].objects[0];
+        if (r1) {
+            r1.isRoot = true;
+            r1.isLive = true;
+            r1.isGarbage = false;
+            r1.color = COLORS.objLive;
+        }
+
+        // 2. ZPage-2 (Medium): Crowded, High Fragmentation
+        // Fill heavily with Garbage
+        fillRegionWithObjects(regions[1], 30, 0.7); // 30 objects, 70% garbage
+
+        // 3. ZPage-3 (Small): Crowded, High Fragmentation
+        fillRegionWithObjects(regions[2], 12, 0.8); // 12 objects, 80% garbage
+
+        // Setup Specific Reference Graph (Manual wiring for visualization)
+
+        // Root in Region 0
+        const root1 = regions[0].objects.find((o) => o.isRoot);
+
+        // Link: Root(Reg0) -> Obj(Reg1) -> Obj(Reg2)
+        const liveInReg1 = regions[1].objects.find((o) => o.isLive);
+        const liveInReg2 = regions[2].objects.find((o) => o.isLive);
+
+        if (root1 && liveInReg1) root1.references.push(liveInReg1.id);
+        if (liveInReg1 && liveInReg2) liveInReg1.references.push(liveInReg2.id);
+
+        // Another Root in Region 1
+        const root2 = regions[1].objects.find(
+            (o) => o.id !== liveInReg1.id && o.isLive
+        );
+        if (root2) {
+            root2.isRoot = true;
+            root2.color = COLORS.objLive;
+        }
+    }
+
+    function fillRegionWithObjects(region, count, garbageChance) {
+        let placed = 0;
+        // Simple random placement
+        for (let i = 0; i < 200 && placed < count; i++) {
+            const rx = Math.floor(Math.random() * region.w);
+            const ry = Math.floor(Math.random() * region.h);
+
+            // Check collision
+            const exists = region.objects.find((o) => o.rx === rx && o.ry === ry);
+            if (!exists) {
+                const isGarbage = Math.random() < garbageChance;
+                // Note: spawnObject sets isLive initially, we override later
+                const obj = new MemObject(nextObjectId++, region, rx, ry);
+                obj.isLive = !isGarbage;
+                // Pre-set garbage visual (will be confirmed in mark phase)
+                // But for simulation, we need them to act as garbage
+                obj.isGarbage = isGarbage;
+
+                region.objects.push(obj);
+                objects.push(obj);
+                placed++;
+            }
+        }
+    }
+
+    function resize() {
+        width = canvas.width = window.innerWidth;
+        height = canvas.height = window.innerHeight;
+        offsetX = (width - 16 * TILE_SIZE) / 2;
+        offsetY = (height - 18 * TILE_SIZE) / 2;
+    }
+
+    // --- Rendering ---
+
+    function drawRegion(r) {
+        const pxX = offsetX + r.gx * TILE_SIZE;
+        const pxY = offsetY + r.gy * TILE_SIZE;
+        const pxW = r.w * TILE_SIZE;
+        const pxH = r.h * TILE_SIZE;
+
+        ctx.save();
+        ctx.fillStyle = r.isRelocationTarget ? "#2a1a1a" : r.baseColor;
+        ctx.fillRect(pxX, pxY, pxW, pxH);
+
+        ctx.strokeStyle = r.isRelocationTarget ? "yellow" : "#444";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(pxX, pxY, pxW, pxH);
+
+        // Grid
+        ctx.strokeStyle = "rgba(255,255,255,0.05)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        for (let i = 0; i <= r.w; i++) {
+            ctx.moveTo(pxX + i * TILE_SIZE, pxY);
+            ctx.lineTo(pxX + i * TILE_SIZE, pxY + pxH);
+        }
+        for (let j = 0; j <= r.h; j++) {
+            ctx.moveTo(pxX, pxY + j * TILE_SIZE);
+            ctx.lineTo(pxX + pxW, pxY + j * TILE_SIZE);
+        }
+        ctx.stroke();
+
+        // Label
+        ctx.fillStyle = "#aaa";
+        ctx.font = '10px "Noto Sans KR"';
+        ctx.fillText(`${r.id} (${r.type})`, pxX, pxY - 5);
+        ctx.restore();
+    }
+
+    function drawRegionStats(r) {
+        // Only draw stats if marking is done (Phase 3 onwards) or for debug
+        if (currentPhase < 3) return;
+
+        const pxX = offsetX + r.gx * TILE_SIZE;
+        const pxY = offsetY + r.gy * TILE_SIZE;
+        const pxW = r.w * TILE_SIZE;
+
+        const garbageRatio = r.getGarbageRatio();
+        const isOverThreshold = garbageRatio >= FRAGMENTATION_THRESHOLD;
+
+        // Bar dimensions
+        const barW = pxW;
+        const barH = 6;
+        const barY = pxY + r.h * TILE_SIZE + 5;
+
+        ctx.save();
+
+        // Background
+        ctx.fillStyle = "#333";
+        ctx.fillRect(pxX, barY, barW, barH);
+
+        // Fill
+        ctx.fillStyle = isOverThreshold ? "#e84118" : "#4cd137";
+        ctx.fillRect(pxX, barY, barW * garbageRatio, barH);
+
+        // Threshold Line
+        ctx.strokeStyle = "yellow";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(pxX + barW * FRAGMENTATION_THRESHOLD, barY - 2);
+        ctx.lineTo(pxX + barW * FRAGMENTATION_THRESHOLD, barY + barH + 2);
+        ctx.stroke();
+
+        // Text
+        ctx.font = "10px Arial";
+        ctx.fillStyle = "#fff";
+        const pct = Math.round(garbageRatio * 100);
+        ctx.fillText(`Garbage: ${pct}%`, pxX, barY + barH + 12);
+
+        if (isOverThreshold && r.isRelocationTarget) {
+            ctx.fillStyle = "yellow";
+            ctx.font = "bold 10px Arial";
+            ctx.fillText("⚠️ TARGET", pxX + barW - 50, barY + barH + 12);
+        }
+
+        ctx.restore();
+    }
+
+    function drawObject(obj) {
+        if (!obj.visible) return;
+        const pos = obj.getScreenPos();
+        const size = TILE_SIZE - GAP * 2;
+        const scale = 1 + obj.z * 0.2;
+
+        ctx.save();
+        ctx.translate(pos.x + TILE_SIZE / 2, pos.y + TILE_SIZE / 2);
+        ctx.scale(scale, scale);
+
+        let color = obj.color;
+
+        if (obj.blinking) {
+            const now = Date.now();
+            if (now - obj.blinkStart < obj.blinkDuration) {
+                const cycle = Math.floor((now - obj.blinkStart) / 100);
+                if (cycle % 2 === 0) {
+                    if (obj.customBlink) color = "#fff";
+                    else ctx.globalAlpha = 0.2;
+                }
+            } else {
+                obj.blinking = false;
+                if (obj.customBlink && obj.isRoot) {
+                    obj.color = COLORS.objMarked;
+                }
+            }
+        }
+
+        if (hoverObject === obj) color = "#fff";
+
+        ctx.fillStyle = color;
+        ctx.fillRect(-size / 2, -size / 2, size, size);
+
+        ctx.strokeStyle = "rgba(0,0,0,0.5)";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(-size / 2, -size / 2, size, size);
+
+        // Only draw ID if it's significant or hovered, otherwise it's too cluttered with many objects
+        if (scale > 1.1 || hoverObject === obj) {
+            ctx.fillStyle = "#000";
+            ctx.textAlign = "center";
+            ctx.font = "8px Arial";
+            ctx.fillText(obj.id, 0, 3);
+        }
+        ctx.restore();
+    }
+
+    function drawConnections() {
+        if (!hoverObject && !isAnimating) return;
+
+        const drawLine = (from, toId, color = "#fff") => {
+            const target = objects.find((o) => o.id === toId);
+            if (!target) return;
+
+            const start = from.getScreenPos();
+            const end = target.getScreenPos();
+
+            ctx.beginPath();
+            ctx.moveTo(start.x + TILE_SIZE / 2, start.y + TILE_SIZE / 2);
+            ctx.lineTo(end.x + TILE_SIZE / 2, end.y + TILE_SIZE / 2);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        };
+
+        // Always draw active traversal connections during Phase 2
+        if (currentPhase === 2 && isAnimating) {
+            objects.forEach((obj) => {
+                if (obj.isMarked) {
+                    obj.references.forEach((refId) => {
+                        const target = objects.find((o) => o.id === refId);
+                        if (target && target.isMarked) {
+                            drawLine(obj, refId, COLORS.objMarked);
+                        }
+                    });
+                }
+            });
+        }
+
+        if (hoverObject) {
+            hoverObject.references.forEach((refId) =>
+                drawLine(hoverObject, refId)
+            );
+        }
+    }
+
+    // --- Main Loop ---
+    function loop() {
+        ctx.clearRect(0, 0, width, height);
+
+        regions.forEach(drawRegion);
+        regions.forEach(drawRegionStats);
+        drawConnections();
+        objects.forEach(drawObject);
+
+        requestAnimationFrame(loop);
+    }
+
+    // --- Phases ---
+
+    const PHASES = [
+        {
+            title: "Phase 1: 마킹 시작 (Mark Start - STW)",
+            desc: "<b>'Stop-The-World'</b> 중지 발생!<br>스레드 스택 등을 스캔하여 루트 객체(Root Set)를 찾습니다. 루트 객체는 <b>금색</b>으로 표시됩니다.",
+            action: phaseMarkStart,
+        },
+        {
+            title: "Phase 2: 동시 마킹 (Concurrent Mark)",
+            desc: "애플리케이션 실행과 동시에 객체 그래프를 탐색합니다.<br>1. 루트에서 연결된 객체들을 따라가며 마킹합니다.<br>2. <b>루트 객체</b>는 3초 점등 후 마킹 완료 상태(보라색)로 전환됩니다.",
+            action: phaseConcurrentMark,
+        },
+        {
+            title: "Phase 3: 재배치 준비 (Concurrent Prepare)",
+            desc: "각 Region의 가비지 비율을 계산합니다. <br><b>임계값(50%)</b>을 초과한 Region(빨간 게이지)이 재배치 집합으로 선정됩니다.<br>ZPage-1은 가비지가 적어 제외됩니다.",
+            action: phasePrepareRelocate,
+        },
+        {
+            title: "Phase 4: 재배치 시작 (Relocate Start - STW)",
+            desc: "<b>'Stop-The-World'</b> 다시 발생 (4초)<br>재배치 대상 Region에 있는 루트 객체들을 먼저 이동시킵니다.",
+            action: phaseRelocateStart,
+        },
+        {
+            title: "Phase 5: 동시 재배치 (Concurrent Relocate)",
+            desc: "나머지 살아있는 객체들을 새로운 Region(Medium/Small)으로 이동(Compaction)시킵니다.<br>*Large Page는 단일 객체용이므로 일반 객체는 합쳐서 이동합니다.",
+            action: phaseConcurrentRelocate,
+        },
+    ];
+
+    function nextPhase() {
+        if (isAnimating) return;
+        currentPhase++;
+        if (currentPhase > PHASES.length) {
+            alert("시뮬레이션 끝!");
+            return;
+        }
+        const p = PHASES[currentPhase - 1];
+        phaseTitle.innerText = p.title;
+        phaseDesc.innerHTML = p.desc;
+        p.action();
+    }
+
+    function phaseMarkStart() {
+        isAnimating = true;
+        nextBtn.disabled = true;
+
+        scanLine.style.display = "block";
+        scanLine.style.left = "0px";
+
+        let pos = 0;
+        const speed = 20;
+        const interval = setInterval(() => {
+            pos += speed;
+            scanLine.style.left = pos + "px";
+
+            if (pos > width) {
+                clearInterval(interval);
+                scanLine.style.display = "none";
+
+                objects.forEach((obj) => {
+                    if (obj.isRoot) {
+                        obj.color = COLORS.objRoot;
+                        obj.z = 1;
+                        setTimeout(() => (obj.z = 0), 300);
+                    }
+                });
+
+                isAnimating = false;
+                nextBtn.disabled = false;
+            }
+        }, 16);
+    }
+
+    function phaseConcurrentMark() {
+        isAnimating = true;
+        nextBtn.disabled = true;
+
+        // 1. Root Blink
+        objects
+            .filter((o) => o.isRoot)
+            .forEach((root) => {
+                root.blinking = true;
+                root.customBlink = true;
+                root.blinkStart = Date.now();
+                root.blinkDuration = 3000;
+
+                setTimeout(() => {
+                    root.color = COLORS.objMarked;
+                }, 3000);
+            });
+
+        // 2. Traversal
+        setTimeout(() => {
+            const queue = objects.filter((o) => o.isRoot);
+            const visited = new Set(queue.map((o) => o.id));
+
+            const traverseStep = () => {
+                if (queue.length === 0) {
+                    // End of Traversal - Mark unreachable as Garbage
+                    setTimeout(() => {
+                        objects.forEach((o) => {
+                            // If not visited, confirm as garbage
+                            if (!visited.has(o.id)) {
+                                o.isGarbage = true;
+                                o.color = COLORS.objGarbage;
+                            } else {
+                                // Visited are Live
+                                o.isGarbage = false;
+                            }
+                        });
+
+                        isAnimating = false;
+                        nextBtn.disabled = false;
+                    }, 1000);
+                    return;
+                }
+
+                const curr = queue.shift();
+                if (!curr.isRoot) curr.color = COLORS.objMarked;
+                curr.isMarked = true;
+
+                curr.references.forEach((refId) => {
+                    const neighbor = objects.find((o) => o.id === refId);
+                    if (neighbor && !visited.has(neighbor.id)) {
+                        visited.add(neighbor.id);
+                        queue.push(neighbor);
+                    }
+                });
+
+                setTimeout(traverseStep, 200);
+            };
+
+            traverseStep();
+        }, 500);
+    }
+
+    function phasePrepareRelocate() {
+        // Determine Targets based on Stats
+        regions.forEach((r) => {
+            if (r.getGarbageRatio() >= FRAGMENTATION_THRESHOLD) {
+                r.isRelocationTarget = true;
+                r.objects.forEach((obj) => {
+                    obj.blinking = true;
+                    obj.customBlink = false;
+                    obj.blinkStart = Date.now();
+                    obj.blinkDuration = 5000;
+                });
+            }
+        });
+
+        runTimer(5000, () => {
+            nextBtn.innerText = "재배치 시작 (Next)";
+        });
+    }
+
+    function phaseRelocateStart() {
+        isAnimating = true;
+        nextBtn.disabled = true;
+        const duration = 4000;
+
+        const originalText = phaseDesc.innerHTML;
+        phaseDesc.innerHTML +=
+            "<br><br><span style='color:orange'>⏳ Root Relocation Scanning... (STW)</span>";
+
+        runTimer(duration, () => {
+            isAnimating = false;
+            nextBtn.disabled = false;
+            phaseDesc.innerHTML =
+                originalText +
+                "<br><br><span style='color:#4cd137'>✅ 완료. 동시 재배치로 넘어갑니다.</span>";
+        });
+    }
+
+    function phaseConcurrentRelocate() {
+        isAnimating = true;
+        nextBtn.disabled = true;
+
+        const targetRegion = regions[3];
+        let nextX = 0,
+            nextY = 0;
+
+        const toMove = objects.filter(
+            (obj) => obj.region.isRelocationTarget && !obj.isGarbage
+        );
+        const toDie = objects.filter(
+            (obj) => obj.region.isRelocationTarget && obj.isGarbage
+        );
+
+        toDie.forEach((obj) => (obj.visible = false));
+
+        toMove.forEach((obj, i) => {
+            const targetGlobalX = targetRegion.gx + nextX;
+            const targetGlobalY = targetRegion.gy + nextY;
+
+            setTimeout(() => {
+                animateMove(obj, targetGlobalX, targetGlobalY, 2000);
+            }, i * 200);
+
+            nextX++;
+            if (nextX >= targetRegion.w) {
+                nextX = 0;
+                nextY++;
+            }
+        });
+
+        const totalTime = toMove.length * 200 + 2000;
+
+        setTimeout(() => {
+            isAnimating = false;
+            nextBtn.disabled = false;
+            nextBtn.innerText = "시뮬레이션 종료";
+            phaseDesc.innerHTML =
+                "모든 단계가 완료되었습니다.<br>메모리가 정리되고 압축되었습니다.";
+
+            regions
+                .filter((r) => r.isRelocationTarget)
+                .forEach((r) => {
+                    r.isRelocationTarget = false;
+                    r.objects = [];
+                });
+        }, totalTime);
+    }
+
+    // --- Utils ---
+
+    function runTimer(duration, cb) {
+        timerBarContainer.style.display = "block";
+        let start = Date.now();
+        let t = setInterval(() => {
+            let elapsed = Date.now() - start;
+            let pct = Math.min(100, (elapsed / duration) * 100);
+            timerBar.style.width = pct + "%";
+
+            if (elapsed >= duration) {
+                clearInterval(t);
+                timerBarContainer.style.display = "none";
+                if (cb) cb();
+            }
+        }, 50);
+    }
+
+    function animateMove(obj, tgx, tgy, duration) {
+        const startPos = obj.getScreenPos();
+        const targetPos = {
+            x: offsetX + tgx * TILE_SIZE,
+            y: offsetY + tgy * TILE_SIZE,
+        };
+
+        const startX = startPos.x;
+        const startY = startPos.y;
+        const startTime = Date.now();
+
+        function step() {
+            const now = Date.now();
+            const progress = Math.min(1, (now - startTime) / duration);
+            const ease =
+                progress < 0.5
+                    ? 2 * progress * progress
+                    : 1 - Math.pow(-2 * progress + 2, 2) / 2;
+
+            obj.animX = startX + (targetPos.x - startX) * ease;
+            obj.animY = startY + (targetPos.y - startY) * ease;
+            obj.isAnimating = true;
+            obj.z = Math.sin(progress * Math.PI) * 1.5;
+
+            if (progress < 1) {
+                requestAnimationFrame(step);
+            } else {
+                obj.isAnimating = false;
+                obj.z = 0;
+                obj.color = COLORS.objRelocated;
+
+                obj.region = regions[3];
+                obj.rx = tgx - regions[3].gx;
+                obj.ry = tgy - regions[3].gy;
+            }
+        }
+        requestAnimationFrame(step);
+    }
+
+    // Override drawObject to support animation
+    const _drawObject = drawObject;
+    drawObject = function (obj) {
+        if (!obj.visible) return;
+
+        let x, y;
+        if (obj.isAnimating) {
+            x = obj.animX;
+            y = obj.animY;
+        } else {
+            const pos = obj.getScreenPos();
+            x = pos.x;
+            y = pos.y;
+        }
+
+        const size = TILE_SIZE - GAP * 2;
+        const scale = 1 + obj.z * 0.2;
+
+        ctx.save();
+        ctx.translate(x + TILE_SIZE / 2, y + TILE_SIZE / 2);
+        ctx.scale(scale, scale);
+
+        let color = obj.color;
+        if (obj.blinking) {
+            const now = Date.now();
+            if (now - obj.blinkStart < obj.blinkDuration) {
+                const cycle = Math.floor((now - obj.blinkStart) / 100);
+                if (cycle % 2 === 0) {
+                    if (obj.customBlink) color = "#fff";
+                    else ctx.globalAlpha = 0.2;
+                }
+            } else {
+                obj.blinking = false;
+                if (obj.customBlink && obj.isRoot) {
+                    obj.color = COLORS.objMarked;
+                }
+            }
+        }
+        if (hoverObject === obj) color = "#fff";
+
+        ctx.fillStyle = color;
+        ctx.fillRect(-size / 2, -size / 2, size, size);
+
+        ctx.strokeStyle = "rgba(0,0,0,0.5)";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(-size / 2, -size / 2, size, size);
+
+        if (scale > 1.1 || hoverObject === obj) {
+            ctx.fillStyle = "#000";
+            ctx.textAlign = "center";
+            ctx.font = "8px Arial";
+            ctx.fillText(obj.id, 0, 3);
+        }
+        ctx.restore();
+    };
+
+    function onMouseMove(e) {
+        const rect = canvas.getBoundingClientRect();
+        mouse.x = e.clientX - rect.left;
+        mouse.y = e.clientY - rect.top;
+
+        hoverObject = objects.find((obj) => {
+            if (!obj.visible) return false;
+            let pos;
+            if (obj.isAnimating) {
+                pos = { x: obj.animX, y: obj.animY };
+            } else {
+                pos = obj.getScreenPos();
+            }
+            return (
+                mouse.x >= pos.x &&
+                mouse.x < pos.x + TILE_SIZE &&
+                mouse.y >= pos.y &&
+                mouse.y < pos.y + TILE_SIZE
+            );
+        });
+
+        updateTooltip();
+    }
+
+    function updateTooltip() {
+        if (hoverObject) {
+            tooltip.style.display = "block";
+            tooltip.style.left = mouse.x + 15 + "px";
+            tooltip.style.top = mouse.y + 15 + "px";
+
+            document.getElementById("tt-addr").textContent = hoverObject.address;
+            document.getElementById("tt-region").textContent =
+                hoverObject.region.id;
+            document.getElementById("tt-type").textContent =
+                hoverObject.region.type;
+            document.getElementById("tt-size").textContent = "32 bytes";
+
+            let stateStr = "Unknown";
+            if (hoverObject.isGarbage) stateStr = "Garbage";
+            else if (hoverObject.isMarked) stateStr = "Live (Marked)";
+            else if (hoverObject.isRoot) stateStr = "Root";
+            else stateStr = "Allocated";
+
+            document.getElementById("tt-state").textContent = stateStr;
+            document.getElementById("tt-state").style.color = hoverObject.color;
+
+            const refs = hoverObject.references
+                .map((id) => `Obj-${id}`)
+                .join(", ");
+            document.getElementById("tt-refs").textContent = refs || "None";
+        } else {
+            tooltip.style.display = "none";
+        }
+    }
+
+    init();
+</script>
+</body>
+</html>
