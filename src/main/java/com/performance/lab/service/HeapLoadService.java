@@ -1,5 +1,6 @@
 package com.performance.lab.service;
 
+import lombok.Getter;
 import org.springframework.stereotype.Service;
 import java.util.LinkedList;
 import java.util.List;
@@ -9,6 +10,7 @@ public class HeapLoadService {
 
     // 부하를 주기 위해 단순 Integer가 아닌 래퍼 객체 사용
     static class Person {
+        @Getter
         int id;
         byte[] payload; // 메모리 점유율을 높이기 위한 더미 데이터
 
@@ -16,6 +18,7 @@ public class HeapLoadService {
             this.id = id;
             this.payload = new byte[1024]; // 1KB 객체
         }
+
     }
 
     public int solveJosephus(int n, int k) {
@@ -31,7 +34,7 @@ public class HeapLoadService {
         // 2. 객체 반복 제거 (Deallocation triggers GC)
         while (list.size() > 1) {
             index = (index + k - 1) % list.size();
-            list.remove(index);
+            Person retrieved = list.remove(index);
         }
 
         return list.get(0).id;
