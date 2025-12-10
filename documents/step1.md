@@ -1,6 +1,6 @@
 # Step 1: 환경 구축 및 로직 검증 (Baseline)
 
-1. 알고리즘(N-Queens, Josephus)의 정확성을 JUnit 테스트로 검증합니다.
+알고리즘(N-Queens, Josephus)의 정확성을 JUnit 테스트로 검증합니다.
 
 - N-Queen(재귀 깊이, cpu 집약) 문제를 위한 `CpuLoadService`
 - Josephus(다수의 객체로 인한 Heap 부하) 문제를 위한 `HeapLoadService`
